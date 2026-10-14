@@ -1,0 +1,3 @@
+# İsteğe bağlı bulut modülü (anlamsal kesit puanlama). Yerel mod için gerekmez.
+-r requirements.txt
+anthropic==1.14.0

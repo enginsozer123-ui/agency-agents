@@ -1,0 +1,61 @@
+# Umbrella Dijital AI Video Edit Assistant — örnek yapılandırma
+# Kopyalayın: cp config.example.toml config.toml
+# Göreli yollar bu dosyanın bulunduğu klasöre göre çözülür.
+
+[paths]
+input_dir = "input"     # videoları buraya bırakın (orijinaller asla değiştirilmez/silinmez)
+output_dir = "output"   # her video için ayrı klasör + report.json
+state_dir = "state"     # iş kayıtları (SQLite)
+log_dir = "logs"        # logs/vea.log
+
+[watch]
+poll_interval_sec = 2.0
+stable_checks = 3       # dosya boyutu bu kadar ardışık kontrolde sabit kalınca kopyalama bitti sayılır
+extensions = [".mp4", ".mov", ".m4v", ".mkv", ".avi", ".webm"]
+max_attempts = 2        # başarısız iş otomatik olarak en fazla bu kadar denenir; sonra 'retry' komutu
+
+[transcribe]
+enabled = true
+model = "small"         # tiny | base | small | medium | large-v3 | yerel model klasörü yolu
+language = "tr"
+device = "cpu"          # Mac'te CPU (CTranslate2 Apple GPU'yu desteklemez)
+compute_type = "int8"
+beam_size = 5
+vad_filter = true
+download_root = ""      # boş: varsayılan önbellek (~/.cache/huggingface)
+
+[analysis]
+scene_threshold = 27.0  # PySceneDetect ContentDetector eşiği
+silence_noise_db = -35.0
+silence_min_sec = 0.6
+
+[candidates]
+min_sec = 6.0
+max_sec = 60.0
+target_sec = 30.0
+max_candidates = 5
+max_overlap = 0.3
+
+[render]
+enabled = true
+width = 1080
+height = 1920
+burn_subtitles = true   # altyazıyı videoya işle
+write_srt = true        # her kesit için ayrı .srt kaydet
+crf = 20
+preset = "medium"
+audio_bitrate = "192k"  # ses seviyesi değiştirilmez; yalnızca AAC'ye kodlanır
+subtitle_font = "Arial"
+subtitle_font_size = 14
+
+[cloud]
+# İsteğe bağlı anlamsal kesit puanlama. Varsayılan KAPALI.
+# Açmak için ikisi de true olmalı ve .env içinde ANTHROPIC_API_KEY tanımlı olmalı.
+# Yalnızca transkript METNİ gönderilir; video ve ses asla gönderilmez.
+enabled = false
+consent_send_transcript = false
+provider = "anthropic"
+model = "claude-opus-5-5"
+effort = "medium"
+max_transcript_chars = 20000
+timeout_sec = 120.0

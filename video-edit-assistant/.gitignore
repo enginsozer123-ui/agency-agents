@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.env
+config.toml
+input/
+output/
+state/
+logs/
+models/
