@@ -10,7 +10,8 @@ import math
 import re
 from dataclasses import asdict, dataclass, field
 
-from .config import CandidateConfig
+from .config import CandidateConfig, EditConfig
+from .edit import estimate_output_duration
 from .transcribe import Segment
 
 WEIGHTS = {"hook": 0.25, "qa": 0.25, "strong": 0.2, "boundary": 0.15, "duration": 0.15}
@@ -58,6 +59,8 @@ class Candidate:
     reasons: list[str]
     text: str = ""
     features: dict = field(default_factory=dict)
+    output_duration_est: float = 0.0  # sessizlik kesildikten sonraki tahmini süre
+    duration_note: str = ""  # süre hedefine neden uyulamadığı (varsa)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -103,16 +106,31 @@ def _select(pool: list[Candidate], cfg: CandidateConfig) -> list[Candidate]:
 
 
 def _score_window(segs: list[Segment], i: int, j: int, duration: float, silences: list[dict],
-                  cuts: list[float], cfg: CandidateConfig) -> Candidate:
+                  cuts: list[float], cfg: CandidateConfig, edit: EditConfig | None = None) -> Candidate:
     window = segs[i : j + 1]
     prev_end = segs[i - 1].end if i > 0 else 0.0
     next_start = segs[j + 1].start if j + 1 < len(segs) else duration
-    start = max(prev_end, window[0].start - 0.15, 0.0)
-    end = min(next_start, window[-1].end + 0.3, duration)
-    dur = end - start
-    text = " ".join(s.text for s in window)
     reasons: list[str] = []
     f: dict = {}
+    smart = edit is None or edit.smart_cuts
+    if smart:  # cümle sınırı + nefes payı; yakında sahne geçişi varsa ona hizala
+        start = max(prev_end, window[0].start - 0.15, 0.0)
+        end = min(next_start, window[-1].end + 0.3, duration)
+        if edit is not None:
+            snap_s = [c for c in cuts if prev_end <= c <= window[0].start and window[0].start - c <= edit.scene_snap_sec]
+            snap_e = [c for c in cuts if window[-1].end <= c <= next_start and c - window[-1].end <= edit.scene_snap_sec]
+            if snap_s:
+                start = max(snap_s)
+            if snap_e:
+                end = min(snap_e)
+            if snap_s or snap_e:
+                reasons.append("Akıllı kesit: " + " ve ".join(
+                    x for x, ok in (("başlangıç", snap_s), ("bitiş", snap_e)) if ok) + " yakındaki sahne geçişine hizalandı")
+    else:  # akıllı kesit kapalı: tam segment sınırları, pay ve hizalama yok
+        start, end = window[0].start, window[-1].end
+    dur = end - start
+    est = estimate_output_duration(start, end, silences, edit) if edit is not None else dur
+    text = " ".join(s.text for s in window)
 
     gap_before = window[0].start - prev_end if i > 0 else window[0].start
     f["hook"] = 1.0 if (i == 0 or gap_before >= 1.0 or _near(window[0].start, cuts, 0.5)) else 0.0
@@ -140,32 +158,50 @@ def _score_window(segs: list[Segment], i: int, j: int, duration: float, silences
     if clean_end:
         reasons.append("Cümle sonunda ve bir duraklamada bitiyor (kesik kesilmiyor)")
 
-    f["duration"] = max(0.0, 1.0 - abs(dur - cfg.target_sec) / cfg.target_sec)
+    if cfg.duration_mode == "auto":
+        f["duration"] = 1.0 if cfg.min_sec <= est <= cfg.max_sec else 0.0
+        dur_reason = (f"Otomatik süre: kurgu sonrası tahmini {est:.1f} sn "
+                      f"({cfg.min_sec:.0f}–{cfg.max_sec:.0f} sn hedef aralığı"
+                      + (" içinde)" if f["duration"] else " dışında)"))
+    else:
+        f["duration"] = max(0.0, 1.0 - abs(est - cfg.target_sec) / cfg.target_sec)
+        dur_reason = f"Süre {est:.1f} sn (hedef {cfg.target_sec:.0f} sn)"
     quality = _asr_quality(window)
     f["asr_quality"] = round(quality, 3)
     raw = sum(WEIGHTS[k] * f[k] for k in WEIGHTS)
     conf = round(raw * (0.5 + 0.5 * quality), 3)
     if not reasons:
         reasons.append("Bütün cümlelerden oluşan, uygun uzunlukta bir konuşma bölümü")
-    reasons.append(f"Süre {dur:.1f} sn (hedef {cfg.target_sec:.0f} sn); transkript güven katsayısı {quality:.2f}")
+    reasons.append(f"{dur_reason}; transkript güven katsayısı {quality:.2f}")
     return Candidate("", round(start, 3), round(end, 3), round(dur, 3), conf, "transcript", reasons, text,
-                     {k: round(v, 3) for k, v in f.items()})
+                     {k: round(v, 3) for k, v in f.items()}, round(est, 3))
 
 
 def from_transcript(segs: list[Segment], duration: float, silences: list[dict], cuts: list[float],
-                    cfg: CandidateConfig) -> list[Candidate]:
+                    cfg: CandidateConfig, edit: EditConfig | None = None) -> list[Candidate]:
+    """Süre kontrolü kurgu SONRASI tahmini süreyle yapılır (sessizlik kesilecekse kısalır)."""
     if not segs:
         return []
-    speech_span = segs[-1].end - segs[0].start
-    min_sec = min(cfg.min_sec, max(1.0, speech_span))  # çok kısa videoda tüm konuşma tek aday olabilir
-    pool: list[Candidate] = []
+    # sessizlik kesimi süreyi kısaltabileceği için ham süre üst sınırını biraz geniş tut
+    span_limit = cfg.max_sec * (2.0 if edit is not None and edit.remove_silence else 1.0)
+    windows: list[Candidate] = []
     for i in range(len(segs)):
         for j in range(i, len(segs)):
-            span = segs[j].end - segs[i].start
-            if span > cfg.max_sec:
+            if segs[j].end - segs[i].start > span_limit:
                 break
-            if span >= min_sec:
-                pool.append(_score_window(segs, i, j, duration, silences, cuts, cfg))
+            windows.append(_score_window(segs, i, j, duration, silences, cuts, cfg, edit))
+    pool = [c for c in windows if cfg.min_sec <= c.output_duration_est <= cfg.max_sec]
+    if not pool:
+        shorter = [c for c in windows if c.output_duration_est < cfg.min_sec]
+        if shorter:  # kaynak hedef alt sınırına yetecek kadar konuşma içermiyor
+            longest = max(c.output_duration_est for c in shorter)
+            pool = [c for c in shorter if c.output_duration_est >= longest - 1e-6]
+            total_speech = sum(s.end - s.start for s in segs)
+            for c in pool:
+                c.duration_note = (f"Hedef süre {cfg.min_sec:.0f}–{cfg.max_sec:.0f} sn, ancak kaynakta bu aralığa uyan "
+                                   f"bütün bir konuşma bölümü yok (toplam konuşma {total_speech:.1f} sn); "
+                                   f"en uzun bütün bölüm seçildi ({c.output_duration_est:.1f} sn)")
+                c.reasons.append(c.duration_note)
     if not pool:  # hiçbir pencere süre sınırlarına uymadı: en uzun tekil segment
         s = max(segs, key=lambda x: x.end - x.start)
         seg_len = s.end - s.start
@@ -179,7 +215,8 @@ def from_transcript(segs: list[Segment], duration: float, silences: list[dict], 
             end, text = s.end, s.text
             why = (f"Süre sınırlarına ({cfg.min_sec:.0f}–{cfg.max_sec:.0f} sn) uyan bir bölüm bulunamadı; "
                    f"en uzun tekil konuşma bölümü ({seg_len:.1f} sn) seçildi")
-        pool.append(Candidate("", s.start, round(end, 3), round(end - s.start, 3), 0.2, "transcript", [why], text))
+        pool.append(Candidate("", s.start, round(end, 3), round(end - s.start, 3), 0.2, "transcript", [why], text,
+                              output_duration_est=round(end - s.start, 3), duration_note=why))
     return _select(pool, cfg)
 
 
@@ -196,9 +233,10 @@ def from_scenes(duration: float, cuts: list[float], cfg: CandidateConfig) -> lis
                 fit = max(0.0, 1.0 - abs(span - cfg.target_sec) / cfg.target_sec)
                 pool.append(Candidate("", round(bounds[i], 3), round(bounds[j], 3), round(span, 3), round(0.1 + 0.15 * fit, 3),
                                       "scenes", ["Konuşma algılanmadı; kesit sahne geçişi sınırlarına göre seçildi",
-                                                 f"Süre {span:.1f} sn"]))
+                                                 f"Süre {span:.1f} sn"], output_duration_est=round(span, 3)))
     if not pool:
         end = min(duration, cfg.max_sec)
         pool.append(Candidate("", 0.0, round(end, 3), round(end, 3), 0.1, "fallback",
-                              ["Konuşma ve uygun sahne sınırı bulunamadı; videonun başından azami süre kadar alındı"]))
+                              ["Konuşma ve uygun sahne sınırı bulunamadı; videonun başından azami süre kadar alındı"],
+                              output_duration_est=round(end, 3)))
     return _select(pool, cfg)

@@ -1,0 +1,45 @@
+# Profil: viral-reels — Instagram Reels / YouTube Shorts için dikey kısa video.
+# Bu dosya profilin TEK kaynağıdır. Kullanıcının config.toml dosyası buradaki değerleri ezebilir.
+# Bölüm ve anahtar adları uygulamanın yapılandırma şemasıyla aynıdır (umbrella_vea/config.py).
+
+[transcribe]
+language = "tr"                  # altyazı dili
+
+[analysis]
+detect_scenes = true
+
+[candidates]
+duration_mode = "auto"           # süre içeriğe göre otomatik seçilir
+min_sec = 15.0                   # hedef aralığın alt sınırı (sessizlik kesildikten sonraki süre)
+max_sec = 60.0                   # hedef aralığın üst sınırı
+
+[edit]
+smart_cuts = true
+remove_silence = true
+punch_in_zooms = true
+zoom_intensity = "subtle"
+
+[render]
+aspect_ratio = "9:16"
+width = 1080
+height = 1920
+
+[captions]
+enabled = true
+timing = "word_level"
+style = "dynamic_highlight"
+highlight_active_word = true
+export_srt = true
+burn = true
+
+[audio]
+add_music = false
+add_sound_effects = false
+
+[delivery]
+preserve_original = true
+auto_publish = false
+require_review_before_delivery = true
+
+[cloud]
+enabled = false                  # bulut analizi kapalı; açılırsa ayrıca consent_send_transcript = true gerekir
