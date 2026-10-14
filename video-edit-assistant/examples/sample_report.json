@@ -1,0 +1,144 @@
+{
+  "schema_version": 1,
+  "status": "done",
+  "source": {
+    "path": "input/ornek_tr.mp4",
+    "name": "ornek_tr.mp4",
+    "fingerprint": "a5fbb6253203f0051e596ccae6896432a6b13116950ec5ac096919ad6eaa99ca",
+    "size_bytes": 235305,
+    "unchanged": true
+  },
+  "generated_at": "2026-10-14T17:30:32+0000",
+  "versions": {
+    "umbrella_vea": "0.1.0",
+    "python": "3.13.16",
+    "ffmpeg": "ffmpeg version 6.1.1-3ubuntu5 Copyright (c) 2000-2023 the FFmpeg developers",
+    "ffprobe": "ffprobe version 6.1.1-3ubuntu5 Copyright (c) 2007-2023 the FFmpeg developers",
+    "faster-whisper": "1.2.1",
+    "ctranslate2": "4.8.3",
+    "scenedetect": "0.7.2",
+    "opencv-python": "5.0.0.93",
+    "anthropic": "1.14.0"
+  },
+  "warnings": [],
+  "media": {
+    "duration_sec": 24.486,
+    "width": 1280,
+    "height": 720,
+    "fps": 25.0,
+    "video_codec": "h264",
+    "rotation": 0,
+    "has_audio": true,
+    "audio_codec": "aac",
+    "audio_channels": 1,
+    "audio_sample_rate": 44100,
+    "container": "mov,mp4,m4a,3gp,3g2,mj2",
+    "size_bytes": 235305,
+    "display_width": 1280,
+    "display_height": 720
+  },
+  "silences": [
+    {
+      "start": 0.0,
+      "end": 1.203,
+      "duration": 1.203
+    },
+    {
+      "start": 6.651,
+      "end": 8.289,
+      "duration": 1.638
+    },
+    {
+      "start": 11.465,
+      "end": 13.098,
+      "duration": 1.633
+    },
+    {
+      "start": 17.605,
+      "end": 19.21,
+      "duration": 1.605
+    },
+    {
+      "start": 22.897,
+      "end": 24.497,
+      "duration": 1.6
+    }
+  ],
+  "scene_cuts": [
+    12.28
+  ],
+  "transcript": {
+    "file": "transcript.json",
+    "srt": "full.srt",
+    "engine": "test-double",
+    "model": "scripted",
+    "language": "tr",
+    "language_probability": 1.0,
+    "segment_count": 4,
+    "text": "Merhaba, bugün size kısa videoların en önemli sırrını anlatacağım. Peki neden ilk üç saniye bu kadar önemli? Çünkü izleyici kaydırıp kaydırmayacağına hemen karar verir. Bu yüzden kesinlikle güçlü bir cümleyle başlayın."
+  },
+  "cloud": {
+    "used": false,
+    "reason": "Bulut modülü kapalı (cloud.enabled = false); yerel mod kullanıldı.",
+    "sent": "nothing"
+  },
+  "candidates": [
+    {
+      "id": "clip_01",
+      "start": 1.053,
+      "end": 23.197,
+      "duration": 22.144,
+      "confidence": 0.87,
+      "basis": "transcript",
+      "reasons": [
+        "Net giriş: konuşmanın ilk cümlesi; açılış cümlesi «Merhaba, bugün size kısa videoların en önemli sırrını anlat…»",
+        "Soru-cevap: soru «Peki neden ilk üç saniye bu kadar önemli?» ve hemen ardından gelen cümle «Çünkü izleyici kaydırıp kaydırmayacağına hemen karar verir.» aynı kesitte",
+        "Güçlü ifade(ler): 'en önemli', 'kesinlikle'",
+        "Cümle sonunda ve bir duraklamada bitiyor (kesik kesilmiyor)",
+        "Süre 22.1 sn (hedef 30 sn); transkript güven katsayısı 0.81"
+      ],
+      "text": "Merhaba, bugün size kısa videoların en önemli sırrını anlatacağım. Peki neden ilk üç saniye bu kadar önemli? Çünkü izleyici kaydırıp kaydırmayacağına hemen karar verir. Bu yüzden kesinlikle güçlü bir cümleyle başlayın.",
+      "features": {
+        "hook": 1.0,
+        "qa": 1.0,
+        "strong": 1.0,
+        "boundary": 1.0,
+        "duration": 0.738,
+        "asr_quality": 0.811
+      }
+    }
+  ],
+  "framing": {
+    "mode": "center_crop_fixed",
+    "face_tracking": false,
+    "note": "Kadraj sabit merkez kırpma ile oluşturuldu; yüz takibi yapılmadı. Konuşmacı merkez dışındaysa kadraj dışında kalabilir."
+  },
+  "audio": {
+    "level_modified": false,
+    "music_added": false,
+    "note": "Orijinal ses seviyesi korunur; yalnızca AAC'ye yeniden kodlanır."
+  },
+  "renders": [
+    {
+      "candidate_id": "clip_01",
+      "status": "ok",
+      "srt": "clips/clip_01.srt",
+      "file": "clips/clip_01.mp4",
+      "width": 1080,
+      "height": 1920,
+      "duration_sec": 22.16,
+      "fps": 25.0,
+      "has_audio": true,
+      "subtitles_burned": true,
+      "render_sec": 8.35
+    }
+  ],
+  "timings_sec": {
+    "probe": 0.06,
+    "silences": 0.15,
+    "scenes": 1.12,
+    "transcribe": 0.23,
+    "candidates": 0.0,
+    "total": 10.01
+  }
+}
