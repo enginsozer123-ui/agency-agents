@@ -83,7 +83,7 @@ def _assert_acceptance(cfg, dest, sha_before, stat_before, jobs, reports):
     mp4 = out_dir / r["file"]
     info = probe(mp4)
     assert (info.width, info.height) == (1080, 1920) and info.has_audio
-    assert abs(info.duration_sec - c["duration"]) < 0.3
+    assert abs(info.duration_sec - r["edit"]["output_duration_planned"]) < 0.3
     srt = (out_dir / r["srt"]).read_text(encoding="utf-8")
     assert "-->" in srt and srt.startswith("1\n")
     assert saved["framing"]["face_tracking"] is False
@@ -97,6 +97,18 @@ def _assert_acceptance(cfg, dest, sha_before, stat_before, jobs, reports):
 
     # 7. bulut olmadan yerel mod
     assert saved["cloud"]["used"] is False and saved["cloud"]["sent"] == "nothing"
+
+    # viral-reels profili gerçekten uygulandı
+    assert saved["profile"]["id"] == "viral-reels"
+    assert r["aspect_ratio"] == "9:16"
+    f = r["features"]
+    assert f["remove_silence"]["status"] == "applied" and r["edit"]["removed_silences"]
+    assert f["punch_in_zooms"]["status"] == "applied" and any(p["zoom"] > 1 for p in r["edit"]["pieces"])
+    assert "word_level" in f["captions"]["detail"] and "dynamic_highlight" in f["captions"]["detail"]
+    assert saved["features"]["detect_scenes"]["status"] == "applied"
+    assert 15 <= info.duration_sec <= 60  # otomatik süre: hedef aralıkta
+    assert (out_dir / r["ass"]).exists()
+    assert saved["review"]["status"] == "pending" and not (out_dir / "delivery").exists()
     return saved
 
 
@@ -107,6 +119,19 @@ def test_e2e_watch_folder(cfg, tmp_path, monkeypatch):
     assert saved["transcript"]["engine"] == "test-double"
     best = max(saved["candidates"], key=lambda c: c["confidence"])
     assert any("Soru-cevap" in r for r in best["reasons"])
+
+    # teslim öncesi inceleme: CLI ile onay → delivery/ klasörü
+    from umbrella_vea.__main__ import main
+
+    cfg_file = tmp_path / "cli.toml"
+    cfg_file.write_text(
+        f'[profile]\nid = "viral-reels"\n[paths]\ninput_dir = "{cfg.input_dir}"\noutput_dir = "{cfg.output_dir}"\n'
+        f'state_dir = "{cfg.state_dir}"\nlog_dir = "{cfg.log_dir}"\n', encoding="utf-8")
+    assert main(["--config", str(cfg_file), "review", "approve", "1", "--note", "uygun"]) == 0
+    out_dir = cfg.output_dir / next(p.name for p in cfg.output_dir.iterdir())
+    assert (out_dir / "delivery" / "clip_01.mp4").exists()
+    import logging
+    logging.getLogger("umbrella_vea").handlers.clear()
 
     # aynı video ikinci kez bırakılırsa (farklı adla) yeniden işlenmez
     shutil.copy(result[0], cfg.input_dir / "ayni_video_kopya.mp4")

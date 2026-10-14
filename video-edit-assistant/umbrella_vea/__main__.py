@@ -8,7 +8,7 @@ import sys
 from importlib import metadata
 from pathlib import Path
 
-from .config import Config, load_config, load_env
+from .config import Config, ConfigError, available_profiles, load_config, load_env
 from .ffmpeg_tools import MediaError, require_binaries, tool_version
 from .logging_setup import setup_logging
 from .state import DONE, InstanceLock, JobStore, fingerprint
@@ -116,6 +116,47 @@ def cmd_retry(cfg: Config, args) -> int:
         store.close()
 
 
+def cmd_review(cfg: Config, args) -> int:
+    from .review import ReviewError, decide, load_report
+
+    store = JobStore(cfg.state_dir / "jobs.sqlite3")
+    jobs = store.all()
+    store.close()
+    if args.action == "list":
+        shown = 0
+        for j in jobs:
+            if not j.output_dir:
+                continue
+            try:
+                rep = load_report(Path(j.output_dir))
+            except ReviewError:
+                continue
+            rv = rep.get("review", {})
+            if args.all or rv.get("status") == "pending":
+                shown += 1
+                print(f"#{j.id:<4} inceleme={rv.get('status', '?'):<12} {Path(j.source_path).name}")
+                for r in rep.get("renders", []):
+                    print(f"       {r['candidate_id']}: {r.get('status')}  {r.get('file', '')}  {r.get('duration_sec', '')} sn")
+        if not shown:
+            print("İnceleme bekleyen taslak yok.")
+        return 0
+    job = next((j for j in jobs if j.id == args.job_id), None)
+    if job is None or not job.output_dir:
+        log.error("İş #%s bulunamadı veya çıktısı yok.", args.job_id)
+        return 2
+    clips = [c.strip() for c in args.clips.split(",")] if args.clips else None
+    try:
+        rv = decide(Path(job.output_dir), cfg, approve=args.action == "approve", clip_ids=clips, note=args.note or "")
+    except ReviewError as exc:
+        log.error("%s", exc)
+        return 1
+    if rv["status"] == "approved":
+        print(f"Onaylandı. Teslim klasörü: {Path(job.output_dir) / rv['delivery_dir']} ({', '.join(rv['delivered'])})")
+    else:
+        print("Reddedildi. Teslim yapılmadı.")
+    return 0
+
+
 def cmd_doctor(cfg: Config, args) -> int:
     from .cloud.semantic_scoring import availability
 
@@ -131,6 +172,14 @@ def cmd_doctor(cfg: Config, args) -> int:
         except metadata.PackageNotFoundError:
             print(f"{pkg:<12}: kurulu değil{' (isteğe bağlı)' if pkg == 'anthropic' else ''}")
             ok &= pkg == "anthropic"
+    print(f"profil      : {cfg.profile.id or '(yok)'}  (mevcut: {', '.join(available_profiles())})")
+    print(f"çıktı       : {cfg.render.width}x{cfg.render.height} ({cfg.render.aspect_ratio}), süre modu={cfg.candidates.duration_mode} "
+          f"{cfg.candidates.min_sec:.0f}–{cfg.candidates.max_sec:.0f} sn")
+    print(f"kurgu       : sessizlik kesme={cfg.edit.remove_silence} sahne={cfg.analysis.detect_scenes} "
+          f"akıllı kesit={cfg.edit.smart_cuts} punch-in={cfg.edit.punch_in_zooms} ({cfg.edit.zoom_intensity})")
+    print(f"altyazı     : {cfg.captions.timing}/{cfg.captions.style} vurgu={cfg.captions.highlight_active_word} "
+          f"işle={cfg.captions.burn} srt={cfg.captions.export_srt}")
+    print(f"teslim      : inceleme zorunlu={cfg.delivery.require_review_before_delivery} otomatik yayın={cfg.delivery.auto_publish}")
     print(f"input       : {cfg.input_dir}")
     print(f"output      : {cfg.output_dir}")
     print(f"whisper     : model={cfg.transcribe.model} dil={cfg.transcribe.language} cihaz={cfg.transcribe.device}")
@@ -150,6 +199,7 @@ def cmd_doctor(cfg: Config, args) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="umbrella_vea", description="Umbrella Dijital AI Video Edit Assistant (MVP)")
     parser.add_argument("--config", default=None, help="TOML yapılandırma dosyası (varsayılan: ./config.toml varsa o)")
+    parser.add_argument("--profile", default=None, help=f"kurgu profili (dosyadakini ezer); mevcut: {', '.join(available_profiles())}")
     parser.add_argument("-v", "--verbose", action="store_true")
     sub = parser.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("watch", help="input/ klasörünü izle ve yeni videoları işle")
@@ -161,15 +211,21 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("retry", help="başarısız işi tekrar sıraya al")
     p.add_argument("job_id", nargs="?", type=int)
     p.add_argument("--all", action="store_true")
+    p = sub.add_parser("review", help="taslakları incele, onayla veya reddet (teslim öncesi)")
+    p.add_argument("action", choices=["list", "approve", "reject"])
+    p.add_argument("job_id", nargs="?", type=int)
+    p.add_argument("--clips", help="yalnızca bu kesitleri teslim et (ör. clip_01,clip_03)")
+    p.add_argument("--note", help="inceleme notu")
+    p.add_argument("--all", action="store_true", help="list: incelenmiş olanları da göster")
     p = sub.add_parser("doctor", help="kurulumu kontrol et")
     p.add_argument("--check-model", action="store_true", help="Whisper modelini yüklemeyi dene (ilk seferde indirir)")
     args = parser.parse_args(argv)
 
     cfg_path = args.config or ("config.toml" if Path("config.toml").exists() else None)
     try:
-        cfg = load_config(cfg_path)
+        cfg = load_config(cfg_path, profile=args.profile)
     except (OSError, ValueError) as exc:
-        print(f"Yapılandırma hatası: {exc}", file=sys.stderr)
+        print(exc if isinstance(exc, ConfigError) else f"Yapılandırma hatası: {exc}", file=sys.stderr)
         return 2
     load_env(cfg.base_dir)
     setup_logging(cfg.log_dir, args.verbose)
@@ -181,7 +237,10 @@ def main(argv: list[str] | None = None) -> int:
             return 2
     if args.cmd == "retry" and not args.all and args.job_id is None:
         parser.error("retry için iş numarası veya --all verin")
-    handlers = {"watch": cmd_watch, "process": cmd_process, "status": cmd_status, "retry": cmd_retry, "doctor": cmd_doctor}
+    if args.cmd == "review" and args.action != "list" and args.job_id is None:
+        parser.error("review approve/reject için iş numarası verin")
+    handlers = {"watch": cmd_watch, "process": cmd_process, "status": cmd_status, "retry": cmd_retry,
+                "review": cmd_review, "doctor": cmd_doctor}
     try:
         return handlers[args.cmd](cfg, args)
     except ValueError as exc:

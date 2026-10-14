@@ -1,0 +1,44 @@
+[Script Info]
+ScriptType: v4.00+
+PlayResX: 1080
+PlayResY: 1920
+WrapStyle: 0
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Arial,72,&H00FFFFFF,&H00FFFFFF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,5,0,2,60,60,384,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:00.15,0:00:00.76,Default,,0,0,0,,{\c&H0000D4FF&\fscx112\fscy112}Merhaba,{\r} bugün size kısa
+Dialogue: 0,0:00:00.76,0:00:01.36,Default,,0,0,0,,Merhaba, {\c&H0000D4FF&\fscx112\fscy112}bugün{\r} size kısa
+Dialogue: 0,0:00:01.36,0:00:01.97,Default,,0,0,0,,Merhaba, bugün {\c&H0000D4FF&\fscx112\fscy112}size{\r} kısa
+Dialogue: 0,0:00:01.97,0:00:02.57,Default,,0,0,0,,Merhaba, bugün size {\c&H0000D4FF&\fscx112\fscy112}kısa{\r}
+Dialogue: 0,0:00:02.57,0:00:03.18,Default,,0,0,0,,{\c&H0000D4FF&\fscx112\fscy112}videoların{\r} en önemli sırrını
+Dialogue: 0,0:00:03.18,0:00:03.78,Default,,0,0,0,,videoların {\c&H0000D4FF&\fscx112\fscy112}en{\r} önemli sırrını
+Dialogue: 0,0:00:03.78,0:00:04.39,Default,,0,0,0,,videoların en {\c&H0000D4FF&\fscx112\fscy112}önemli{\r} sırrını
+Dialogue: 0,0:00:04.39,0:00:04.99,Default,,0,0,0,,videoların en önemli {\c&H0000D4FF&\fscx112\fscy112}sırrını{\r}
+Dialogue: 0,0:00:04.99,0:00:05.84,Default,,0,0,0,,{\c&H0000D4FF&\fscx112\fscy112}anlatacağım.{\r}
+Dialogue: 0,0:00:05.84,0:00:06.24,Default,,0,0,0,,{\c&H0000D4FF&\fscx112\fscy112}Peki{\r} neden ilk üç
+Dialogue: 0,0:00:06.24,0:00:06.63,Default,,0,0,0,,Peki {\c&H0000D4FF&\fscx112\fscy112}neden{\r} ilk üç
+Dialogue: 0,0:00:06.63,0:00:07.03,Default,,0,0,0,,Peki neden {\c&H0000D4FF&\fscx112\fscy112}ilk{\r} üç
+Dialogue: 0,0:00:07.03,0:00:07.43,Default,,0,0,0,,Peki neden ilk {\c&H0000D4FF&\fscx112\fscy112}üç{\r}
+Dialogue: 0,0:00:07.43,0:00:07.82,Default,,0,0,0,,{\c&H0000D4FF&\fscx112\fscy112}saniye{\r} bu kadar önemli?
+Dialogue: 0,0:00:07.82,0:00:08.22,Default,,0,0,0,,saniye {\c&H0000D4FF&\fscx112\fscy112}bu{\r} kadar önemli?
+Dialogue: 0,0:00:08.22,0:00:08.62,Default,,0,0,0,,saniye bu {\c&H0000D4FF&\fscx112\fscy112}kadar{\r} önemli?
+Dialogue: 0,0:00:08.62,0:00:09.25,Default,,0,0,0,,saniye bu kadar {\c&H0000D4FF&\fscx112\fscy112}önemli?{\r}
+Dialogue: 0,0:00:09.25,0:00:09.90,Default,,0,0,0,,{\c&H0000D4FF&\fscx112\fscy112}Çünkü{\r} izleyici kaydırıp kaydırmayacağına
+Dialogue: 0,0:00:09.90,0:00:10.54,Default,,0,0,0,,Çünkü {\c&H0000D4FF&\fscx112\fscy112}izleyici{\r} kaydırıp kaydırmayacağına
+Dialogue: 0,0:00:10.54,0:00:11.19,Default,,0,0,0,,Çünkü izleyici {\c&H0000D4FF&\fscx112\fscy112}kaydırıp{\r} kaydırmayacağına
+Dialogue: 0,0:00:11.19,0:00:11.83,Default,,0,0,0,,Çünkü izleyici kaydırıp {\c&H0000D4FF&\fscx112\fscy112}kaydırmayacağına{\r}
+Dialogue: 0,0:00:11.83,0:00:12.47,Default,,0,0,0,,{\c&H0000D4FF&\fscx112\fscy112}hemen{\r} karar verir.
+Dialogue: 0,0:00:12.47,0:00:13.12,Default,,0,0,0,,hemen {\c&H0000D4FF&\fscx112\fscy112}karar{\r} verir.
+Dialogue: 0,0:00:13.12,0:00:14.00,Default,,0,0,0,,hemen karar {\c&H0000D4FF&\fscx112\fscy112}verir.{\r}
+Dialogue: 0,0:00:14.00,0:00:14.53,Default,,0,0,0,,{\c&H0000D4FF&\fscx112\fscy112}Bu{\r} yüzden kesinlikle güçlü
+Dialogue: 0,0:00:14.53,0:00:15.05,Default,,0,0,0,,Bu {\c&H0000D4FF&\fscx112\fscy112}yüzden{\r} kesinlikle güçlü
+Dialogue: 0,0:00:15.05,0:00:15.58,Default,,0,0,0,,Bu yüzden {\c&H0000D4FF&\fscx112\fscy112}kesinlikle{\r} güçlü
+Dialogue: 0,0:00:15.58,0:00:16.11,Default,,0,0,0,,Bu yüzden kesinlikle {\c&H0000D4FF&\fscx112\fscy112}güçlü{\r}
+Dialogue: 0,0:00:16.11,0:00:16.64,Default,,0,0,0,,{\c&H0000D4FF&\fscx112\fscy112}bir{\r} cümleyle başlayın.
+Dialogue: 0,0:00:16.64,0:00:17.16,Default,,0,0,0,,bir {\c&H0000D4FF&\fscx112\fscy112}cümleyle{\r} başlayın.
+Dialogue: 0,0:00:17.16,0:00:17.94,Default,,0,0,0,,bir cümleyle {\c&H0000D4FF&\fscx112\fscy112}başlayın.{\r}

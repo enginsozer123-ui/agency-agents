@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import re
 import sys
 import tempfile
@@ -17,14 +18,44 @@ from .cloud import semantic_scoring
 from .config import Config
 from .logging_setup import redact
 from .ffmpeg_tools import MediaError, detect_silences, extract_audio_wav, probe, tool_version
+from .captions import build_events, to_ass
+from .edit import map_segments, plan_clip
 from .render import RenderError, render_clip
 from .scenes import detect_scene_cuts
-from .srt import clip_cues, segments_to_cues, to_srt
+from .srt import segments_to_cues, to_srt
 from .transcribe import FasterWhisperTranscriber, Transcriber, Transcript
 
 log = logging.getLogger("umbrella_vea.pipeline")
 
-REPORT_SCHEMA_VERSION = 1
+REPORT_SCHEMA_VERSION = 2
+
+
+def aspect_ratio(w: int, h: int) -> str:
+    g = math.gcd(w, h) or 1
+    return f"{w // g}:{h // g}"
+
+
+def _st(status: str, detail: str) -> dict:
+    return {"status": status, "detail": detail}
+
+
+def profile_summary(cfg: Config) -> dict:
+    """Bu çalıştırmada gerçekten kullanılan (katmanlanmış) ayarların özeti."""
+    c, e, r, cap = cfg.candidates, cfg.edit, cfg.render, cfg.captions
+    return {
+        "id": cfg.profile.id or None,
+        "aspect_ratio": r.aspect_ratio, "width": r.width, "height": r.height,
+        "duration_mode": c.duration_mode, "min_sec": c.min_sec, "max_sec": c.max_sec,
+        "remove_silence": e.remove_silence, "detect_scenes": cfg.analysis.detect_scenes,
+        "smart_cuts": e.smart_cuts, "punch_in_zooms": e.punch_in_zooms, "zoom_intensity": e.zoom_intensity,
+        "captions": {"enabled": cap.enabled, "language": cfg.transcribe.language, "timing": cap.timing,
+                     "style": cap.style, "highlight_active_word": cap.highlight_active_word,
+                     "export_srt": cap.export_srt, "burn": cap.burn},
+        "add_music": cfg.audio.add_music, "add_sound_effects": cfg.audio.add_sound_effects,
+        "cloud_enabled": cfg.cloud.enabled, "preserve_original": cfg.delivery.preserve_original,
+        "auto_publish": cfg.delivery.auto_publish,
+        "require_review_before_delivery": cfg.delivery.require_review_before_delivery,
+    }
 
 
 class PartialRenderError(RenderError):
@@ -75,6 +106,7 @@ def process_video(source: Path, cfg: Config, fp: str, transcriber: Transcriber |
     report: dict = {
         "schema_version": REPORT_SCHEMA_VERSION,
         "status": "processing",
+        "profile": profile_summary(cfg),
         "source": {"path": str(source), "name": source.name, "fingerprint": fp, "size_bytes": before[0]},
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "versions": _versions(),
@@ -101,13 +133,19 @@ def process_video(source: Path, cfg: Config, fp: str, transcriber: Transcriber |
         report["silences"] = silences
         mark("silences", t)
 
+        features = report["features"] = {}
         say("sahne geçişleri", 0.15)
         t = time.time()
-        try:
-            cuts = detect_scene_cuts(source, cfg.analysis.scene_threshold)
-        except Exception as exc:  # sahne analizi zorunlu değil
-            cuts = []
-            warnings.append(f"Sahne analizi yapılamadı: {exc}")
+        cuts: list[float] = []
+        if not cfg.analysis.detect_scenes:
+            features["detect_scenes"] = _st("disabled", "Yapılandırmada kapalı.")
+        else:
+            try:
+                cuts = detect_scene_cuts(source, cfg.analysis.scene_threshold)
+                features["detect_scenes"] = _st("applied", f"PySceneDetect ContentDetector: {len(cuts)} geçiş bulundu.")
+            except Exception as exc:  # sahne analizi zorunlu değil
+                warnings.append(f"Sahne analizi yapılamadı: {exc}")
+                features["detect_scenes"] = _st("failed", f"Sahne analizi yapılamadı: {exc}")
         report["scene_cuts"] = cuts
         mark("scenes", t)
 
@@ -145,11 +183,20 @@ def process_video(source: Path, cfg: Config, fp: str, transcriber: Transcriber |
         say("kesit adayları", 0.68)
         t = time.time()
         if transcript and transcript.segments:
-            picks = cand.from_transcript(transcript.segments, info.duration_sec, silences, cuts, cfg.candidates)
+            picks = cand.from_transcript(transcript.segments, info.duration_sec, silences, cuts, cfg.candidates, cfg.edit)
         else:
             picks = cand.from_scenes(info.duration_sec, cuts, cfg.candidates)
         cand_dicts = [c.to_dict() for c in picks]
         mark("candidates", t)
+        features["smart_cuts"] = (
+            _st("applied", "Kesit sınırları cümle sınırlarına (nefes payıyla) ve yakın sahne geçişlerine hizalandı.")
+            if cfg.edit.smart_cuts and transcript and transcript.segments else
+            _st("disabled", "Yapılandırmada kapalı; tam segment sınırları kullanıldı.") if not cfg.edit.smart_cuts else
+            _st("not_applicable", "Transkript yok; kesitler sahne sınırlarına göre seçildi."))
+        features["duration_mode"] = _st(
+            cfg.candidates.duration_mode,
+            f"Hedef aralık {cfg.candidates.min_sec:.0f}–{cfg.candidates.max_sec:.0f} sn (kurgu sonrası süre)"
+            if cfg.candidates.duration_mode == "auto" else f"Hedef {cfg.candidates.target_sec:.0f} sn")
 
         ok, reason = semantic_scoring.availability(cfg.cloud)
         cloud_info = {"used": False, "reason": reason, "sent": "nothing"}
@@ -174,9 +221,11 @@ def process_video(source: Path, cfg: Config, fp: str, transcriber: Transcriber |
             "face_tracking": False,
             "note": "Kadraj sabit merkez kırpma ile oluşturuldu; yüz takibi yapılmadı. Konuşmacı merkez dışındaysa kadraj dışında kalabilir.",
         }
-        report["audio"] = {"level_modified": False, "music_added": False,
+        report["audio"] = {"level_modified": False, "music_added": False, "sound_effects_added": False,
                            "note": "Orijinal ses seviyesi korunur; yalnızca AAC'ye yeniden kodlanır." if info.has_audio else "Kaynakta ses yok."}
 
+        cap = cfg.captions
+        segments = transcript.segments if transcript else []
         renders = []
         if cfg.render.enabled:
             for idx, c in enumerate(cand_dicts):
@@ -185,26 +234,48 @@ def process_video(source: Path, cfg: Config, fp: str, transcriber: Transcriber |
                 entry: dict = {"candidate_id": c["id"], "status": "failed"}
                 t = time.time()
                 try:
-                    ccues = clip_cues(cues, c["start"], c["end"])
-                    srt_file = None
-                    if ccues and (cfg.render.write_srt or cfg.render.burn_subtitles):
-                        srt_file = clips_dir / f"{c['id']}.srt"
-                        srt_file.write_text(to_srt(ccues), encoding="utf-8")
-                        if cfg.render.write_srt:
+                    plan = plan_clip(c["start"], c["end"], silences, segments, cfg.edit, cfg.zoom_factor, info.has_audio)
+                    clip_segs = map_segments(segments, plan) if segments else []
+                    cfeat = dict(plan.features)
+                    entry["edit"] = {"pieces": [p.to_dict() for p in plan.pieces], "removed_silences": plan.removed_silences,
+                                     "output_duration_planned": round(plan.output_duration, 3)}
+                    ass_file = None
+                    if not cap.enabled:
+                        cfeat["captions"] = _st("disabled", "Yapılandırmada kapalı.")
+                    elif not clip_segs:
+                        cfeat["captions"] = _st("not_applicable", "Bu kesitte konuşma yok; altyazı üretilmedi.")
+                    else:
+                        if cap.export_srt:
+                            srt_file = clips_dir / f"{c['id']}.srt"
+                            srt_file.write_text(to_srt(segments_to_cues(clip_segs)), encoding="utf-8")
                             entry["srt"] = f"clips/{srt_file.name}"
+                        events, timing = build_events(clip_segs, cap)
+                        ass_file = clips_dir / f"{c['id']}.ass"
+                        ass_file.write_text(to_ass(events, cap, cfg.render.width, cfg.render.height), encoding="utf-8")
+                        entry["ass"] = f"clips/{ass_file.name}"
+                        style = cap.style if timing == "word_level" else "plain"
+                        detail = (f"Zamanlama: {timing}; stil: {style}"
+                                  + ("; aktif kelime vurgulu" if style == "dynamic_highlight" and cap.highlight_active_word else "")
+                                  + ("; videoya işlendi (ASS/libass)" if cap.burn else "; videoya işlenmedi (yalnızca dosya)"))
+                        if cap.timing == "word_level" and timing != "word_level":
+                            detail += ". Kelime zamanı bulunamadı; segment zamanlamasına düşüldü."
+                        cfeat["captions"] = _st("applied", detail)
+                    entry["features"] = cfeat
                     mp4 = render_clip(source, c["start"], c["end"], clips_dir / f"{c['id']}.mp4", cfg.render,
-                                      info.has_audio, srt_file if cfg.render.burn_subtitles else None,
-                                      lambda p, b=base: say(f"render {c['id']}", b + 0.27 / max(1, len(cand_dicts)) * p))
-                    if srt_file and not cfg.render.write_srt:
-                        srt_file.unlink(missing_ok=True)
+                                      info.has_audio, ass_file if cap.burn else None,
+                                      lambda p, b=base: say(f"render {c['id']}", b + 0.27 / max(1, len(cand_dicts)) * p),
+                                      pieces=[(p.src_start, p.src_end, p.zoom) for p in plan.pieces])
                     out_info = probe(mp4)
                     entry.update({
                         "status": "ok", "file": f"clips/{mp4.name}", "width": out_info.width, "height": out_info.height,
+                        "aspect_ratio": aspect_ratio(out_info.width, out_info.height),
                         "duration_sec": out_info.duration_sec, "fps": out_info.fps, "has_audio": out_info.has_audio,
-                        "subtitles_burned": bool(cfg.render.burn_subtitles and ccues),
+                        "subtitles_burned": bool(cap.burn and ass_file),
                     })
-                    if not ccues:
-                        entry["note"] = "Bu kesitte altyazı yok (konuşma algılanmadı)."
+                    lo, hi = cfg.candidates.min_sec, cfg.candidates.max_sec
+                    if cfg.candidates.duration_mode == "auto" and not lo - 0.5 <= out_info.duration_sec <= hi + 0.5:
+                        entry["duration_note"] = c.get("duration_note") or (
+                            f"Çıktı süresi {out_info.duration_sec:.1f} sn, {lo:.0f}–{hi:.0f} sn hedefinin dışında")
                 except (RenderError, MediaError, OSError) as exc:
                     entry["error"] = str(exc)
                     warnings.append(f"{c['id']} render edilemedi: {exc}")
@@ -212,6 +283,13 @@ def process_video(source: Path, cfg: Config, fp: str, transcriber: Transcriber |
                 entry["render_sec"] = round(time.time() - t, 2)
                 renders.append(entry)
         report["renders"] = renders
+        report["review"] = {
+            "required": cfg.delivery.require_review_before_delivery,
+            "status": "pending" if cfg.delivery.require_review_before_delivery else "not_required",
+            "note": ("Taslaklar teslim edilmeden önce incelenmeli: python -m umbrella_vea review approve <iş_no>"
+                     if cfg.delivery.require_review_before_delivery else "İnceleme zorunlu değil."),
+        }
+        report["publishing"] = {"auto_publish": False, "note": "Otomatik yayın özelliği yoktur; hiçbir platforma yükleme yapılmaz."}
 
         if _snapshot(source) != before:
             raise RuntimeError("Orijinal dosya işlem sırasında değişti! (boyut veya değiştirilme zamanı farklı)")
@@ -223,6 +301,10 @@ def process_video(source: Path, cfg: Config, fp: str, transcriber: Transcriber |
         report["status"] = "done" if rendered == len(renders) else "done_with_errors"
         if report["status"] == "done_with_errors":
             raise PartialRenderError(f"{len(renders) - rendered}/{len(renders)} kesit render edilemedi; 'retry' ile yeniden denenebilir")
+        if not cfg.delivery.require_review_before_delivery:
+            from .review import deliver
+
+            report["review"]["delivered"] = deliver(out_dir, report, [r["candidate_id"] for r in renders], cfg)
         say("tamamlandı", 1.0)
         return out_dir, report
     except Exception as exc:

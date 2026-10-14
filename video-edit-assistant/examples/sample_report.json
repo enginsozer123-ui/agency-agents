@@ -1,6 +1,35 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "status": "done",
+  "profile": {
+    "id": "viral-reels",
+    "aspect_ratio": "9:16",
+    "width": 1080,
+    "height": 1920,
+    "duration_mode": "auto",
+    "min_sec": 15.0,
+    "max_sec": 60.0,
+    "remove_silence": true,
+    "detect_scenes": true,
+    "smart_cuts": true,
+    "punch_in_zooms": true,
+    "zoom_intensity": "subtle",
+    "captions": {
+      "enabled": true,
+      "language": "tr",
+      "timing": "word_level",
+      "style": "dynamic_highlight",
+      "highlight_active_word": true,
+      "export_srt": true,
+      "burn": true
+    },
+    "add_music": false,
+    "add_sound_effects": false,
+    "cloud_enabled": false,
+    "preserve_original": true,
+    "auto_publish": false,
+    "require_review_before_delivery": true
+  },
   "source": {
     "path": "input/ornek_tr.mp4",
     "name": "ornek_tr.mp4",
@@ -8,7 +37,7 @@
     "size_bytes": 235305,
     "unchanged": true
   },
-  "generated_at": "2026-10-14T17:30:32+0000",
+  "generated_at": "2026-10-14T17:49:15+0000",
   "versions": {
     "umbrella_vea": "0.1.0",
     "python": "3.13.16",
@@ -64,6 +93,20 @@
       "duration": 1.6
     }
   ],
+  "features": {
+    "detect_scenes": {
+      "status": "applied",
+      "detail": "PySceneDetect ContentDetector: 1 geçiş bulundu."
+    },
+    "smart_cuts": {
+      "status": "applied",
+      "detail": "Kesit sınırları cümle sınırlarına (nefes payıyla) ve yakın sahne geçişlerine hizalandı."
+    },
+    "duration_mode": {
+      "status": "auto",
+      "detail": "Hedef aralık 15–60 sn (kurgu sonrası süre)"
+    }
+  },
   "scene_cuts": [
     12.28
   ],
@@ -88,14 +131,14 @@
       "start": 1.053,
       "end": 23.197,
       "duration": 22.144,
-      "confidence": 0.87,
+      "confidence": 0.905,
       "basis": "transcript",
       "reasons": [
         "Net giriş: konuşmanın ilk cümlesi; açılış cümlesi «Merhaba, bugün size kısa videoların en önemli sırrını anlat…»",
         "Soru-cevap: soru «Peki neden ilk üç saniye bu kadar önemli?» ve hemen ardından gelen cümle «Çünkü izleyici kaydırıp kaydırmayacağına hemen karar verir.» aynı kesitte",
         "Güçlü ifade(ler): 'en önemli', 'kesinlikle'",
         "Cümle sonunda ve bir duraklamada bitiyor (kesik kesilmiyor)",
-        "Süre 22.1 sn (hedef 30 sn); transkript güven katsayısı 0.81"
+        "Otomatik süre: kurgu sonrası tahmini 17.8 sn (15–60 sn hedef aralığı içinde); transkript güven katsayısı 0.81"
       ],
       "text": "Merhaba, bugün size kısa videoların en önemli sırrını anlatacağım. Peki neden ilk üç saniye bu kadar önemli? Çünkü izleyici kaydırıp kaydırmayacağına hemen karar verir. Bu yüzden kesinlikle güçlü bir cümleyle başlayın.",
       "features": {
@@ -103,9 +146,11 @@
         "qa": 1.0,
         "strong": 1.0,
         "boundary": 1.0,
-        "duration": 0.738,
+        "duration": 1.0,
         "asr_quality": 0.811
-      }
+      },
+      "output_duration_est": 17.808,
+      "duration_note": ""
     }
   ],
   "framing": {
@@ -116,29 +161,106 @@
   "audio": {
     "level_modified": false,
     "music_added": false,
+    "sound_effects_added": false,
     "note": "Orijinal ses seviyesi korunur; yalnızca AAC'ye yeniden kodlanır."
   },
   "renders": [
     {
       "candidate_id": "clip_01",
       "status": "ok",
+      "edit": {
+        "pieces": [
+          {
+            "src_start": 1.053,
+            "src_end": 6.771,
+            "zoom": 1.0,
+            "out_start": 0.0
+          },
+          {
+            "src_start": 8.169,
+            "src_end": 11.585,
+            "zoom": 1.08,
+            "out_start": 5.718
+          },
+          {
+            "src_start": 12.978,
+            "src_end": 17.725,
+            "zoom": 1.0,
+            "out_start": 9.134
+          },
+          {
+            "src_start": 19.09,
+            "src_end": 23.017,
+            "zoom": 1.08,
+            "out_start": 13.881
+          }
+        ],
+        "removed_silences": [
+          {
+            "start": 6.771,
+            "end": 8.169,
+            "duration": 1.398
+          },
+          {
+            "start": 11.585,
+            "end": 12.978,
+            "duration": 1.393
+          },
+          {
+            "start": 17.725,
+            "end": 19.09,
+            "duration": 1.365
+          },
+          {
+            "start": 23.017,
+            "end": 23.197,
+            "duration": 0.18
+          }
+        ],
+        "output_duration_planned": 17.808
+      },
       "srt": "clips/clip_01.srt",
+      "ass": "clips/clip_01.ass",
+      "features": {
+        "remove_silence": {
+          "status": "applied",
+          "detail": "4 duraklama kesildi, toplam 4.34 sn (≥ 0.5 sn olanlar; iki yanda 0.12 sn pay)"
+        },
+        "punch_in_zooms": {
+          "status": "applied",
+          "detail": "4 parçanın 2 tanesinde %8 merkez yakınlaştırma (geçişlerde dönüşümlü). Yüz takibi yok; merkez sabit."
+        },
+        "captions": {
+          "status": "applied",
+          "detail": "Zamanlama: word_level; stil: dynamic_highlight; aktif kelime vurgulu; videoya işlendi (ASS/libass)"
+        }
+      },
       "file": "clips/clip_01.mp4",
       "width": 1080,
       "height": 1920,
-      "duration_sec": 22.16,
+      "aspect_ratio": "9:16",
+      "duration_sec": 17.823,
       "fps": 25.0,
       "has_audio": true,
       "subtitles_burned": true,
-      "render_sec": 8.35
+      "render_sec": 8.18
     }
   ],
+  "review": {
+    "required": true,
+    "status": "pending",
+    "note": "Taslaklar teslim edilmeden önce incelenmeli: python -m umbrella_vea review approve <iş_no>"
+  },
+  "publishing": {
+    "auto_publish": false,
+    "note": "Otomatik yayın özelliği yoktur; hiçbir platforma yükleme yapılmaz."
+  },
   "timings_sec": {
-    "probe": 0.06,
+    "probe": 0.05,
     "silences": 0.15,
-    "scenes": 1.12,
-    "transcribe": 0.23,
+    "scenes": 1.17,
+    "transcribe": 0.27,
     "candidates": 0.0,
-    "total": 10.01
+    "total": 9.93
   }
 }

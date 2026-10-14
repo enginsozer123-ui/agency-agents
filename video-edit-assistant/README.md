@@ -2,14 +2,21 @@
 
 Mac'teki `input/` klasörüne bırakılan videoları otomatik olarak analiz eder. Instagram Reels ve YouTube Shorts için **düzenlenebilir 9:16 taslaklar** üretir. Varsayılan olarak tamamen yerel çalışır; ücretli API gerekmez.
 
+Örnek yapılandırma `viral-reels` kurgu profilini kullanır. Profilin ne yaptığı ve hangi özelliklerin henüz geliştirilmediği aşağıdaki [Kurgu profili: viral-reels](#kurgu-profili-viral-reels) bölümünde.
+
 ## Ne yapar?
 
 1. **İzler:** `input/` klasörüne yeni video gelince algılar. Kopyalama bitmeden başlamaz, aynı videoyu iki kez işlemez.
 2. **Analiz eder:** Süre, çözünürlük, FPS ve ses bilgisi (ffprobe). Sessizlikler (FFmpeg `silencedetect`) ve sahne geçişleri (PySceneDetect).
 3. **Yazıya döker:** Türkçe konuşmayı kelime zamanlarıyla transkripte çevirir (faster-whisper, yerel). Tam video için SRT üretir.
 4. **Kesit önerir:** Net giriş, soru-cevap, güçlü ifade ve temiz kesim noktasına göre aday kesitler seçer. Her aday için başlangıç/bitiş, süre, gerekçe ve güven puanı verir. Gerekçeler yalnızca transkriptte gerçekten geçen ifadelere dayanır.
-5. **Taslak üretir:** Her adayı 1080x1920 MP4 olarak dışa aktarır. Kadraj sabit merkez kırpmadır, Türkçe altyazı isteğe bağlı olarak videoya işlenir ve ayrıca `.srt` olarak kaydedilir. Ses seviyesi değiştirilmez, müzik eklenmez.
-6. **Rapor yazar:** Her video için ayrı bir çıktı klasörü ve `report.json` oluşturur.
+5. **Kurgular:** Kesit içindeki duraklamaları çıkarır (jump cut). Parça geçişlerinde hafif punch-in yakınlaştırma yapar.
+6. **Taslak üretir:** Her adayı 1080x1920 MP4 olarak dışa aktarır. Kadraj sabit merkez kırpmadır.
+   - Türkçe altyazı kelime zamanlıdır; o an konuşulan kelime vurgulanır (ASS/libass ile videoya işlenir).
+   - Altyazı ayrıca `.srt` olarak da kaydedilir.
+   - Ses seviyesi değiştirilmez, müzik veya ses efekti eklenmez.
+7. **Rapor yazar:** Her video için ayrı bir çıktı klasörü ve `report.json` oluşturur. Raporda her özelliğin gerçekte uygulanıp uygulanmadığı yazar.
+8. **İncelemeyi bekler:** Taslaklar onaylanmadan teslim klasörüne kopyalanmaz. Otomatik yayın yoktur.
 
 Orijinal video **hiçbir zaman değiştirilmez, taşınmaz veya silinmez**. Sistem yalnızca okur ve işlem sonunda dosyanın boyutunun ve değişiklik zamanının aynı kaldığını doğrular.
 
@@ -25,9 +32,13 @@ input/ ──► watcher (yoklama + kararlılık kontrolü + SQLite iş kaydı)
               │                         │
               │         [isteğe bağlı] cloud/semantic_scoring (yalnızca metin, onaylı)
               ▼
-           render (FFmpeg: merkez kırpma → 1080x1920, libass altyazı, AAC ses)
+           edit (sessizlik kesme + punch-in parçaları + zaman eşleme)
               ▼
-output/<video>_<id>/report.json + transcript.json + full.srt + clips/clip_NN.mp4/.srt
+           render (FFmpeg: trim/concat → merkez kırpma → 1080x1920 → ASS altyazı, AAC ses)
+              ▼
+output/<video>_<id>/report.json + transcript.json + full.srt + clips/clip_NN.mp4/.srt/.ass
+              ▼
+           review (onay) → output/<video>_<id>/delivery/
 ```
 
 Tek bir Python süreci olarak çalışır; mikroservis veya sunucu yoktur. Kod `umbrella_vea/` klasöründedir:
@@ -39,9 +50,13 @@ Tek bir Python süreci olarak çalışır; mikroservis veya sunucu yoktur. Kod `
 | `ffmpeg_tools.py` | ffprobe medya bilgisi, sessizlik tespiti, ses çıkarma |
 | `scenes.py` | PySceneDetect ile sahne geçişleri |
 | `transcribe.py` | faster-whisper ile Türkçe transkript |
-| `srt.py` | SRT üretimi ve kesite göre altyazı kaydırma |
-| `candidates.py` | Kesit adayı seçimi ve gerekçeler |
-| `render.py` | 9:16 render |
+| `srt.py` | SRT üretimi |
+| `candidates.py` | Kesit adayı seçimi, otomatik süre, akıllı kesit ve gerekçeler |
+| `edit.py` | Sessizlik kesme, punch-in parçaları, kaynak→çıktı zaman eşlemesi |
+| `captions.py` | Kelime zamanlı, aktif kelime vurgulu ASS altyazı |
+| `render.py` | 9:16 render (FFmpeg filtre grafiği) |
+| `review.py` | Teslim öncesi inceleme ve `delivery/` klasörü |
+| `config.py`, `profiles/` | TOML yapılandırma şeması, profiller ve doğrulama |
 | `pipeline.py` | Tüm adımlar ve JSON rapor |
 | `cloud/semantic_scoring.py` | İsteğe bağlı bulut puanlama (varsayılan kapalı) |
 
@@ -61,7 +76,7 @@ pip install -r requirements.txt          # yerel mod
 # pip install -r requirements-dev.txt    # testler için (pytest)
 # pip install -r requirements-cloud.txt  # yalnızca bulut modülü isteniyorsa
 
-# 3) Yapılandırma
+# 3) Yapılandırma (viral-reels profili hazır gelir)
 cp config.example.toml config.toml
 # cp .env.example .env                   # yalnızca bulut modülü için
 
@@ -83,7 +98,12 @@ python -m umbrella_vea process video.mp4 --force  # daha önce işlenmişse yeni
 python -m umbrella_vea status           # iş durumları ve hatalar
 python -m umbrella_vea retry 3          # 3 numaralı başarısız işi tekrar sıraya al
 python -m umbrella_vea retry --all      # tüm başarısız işleri tekrar sıraya al
-python -m umbrella_vea doctor           # kurulum ve sürüm bilgisi
+python -m umbrella_vea review list               # incelemeyi bekleyen taslaklar
+python -m umbrella_vea review approve 3           # 3 numaralı işin tüm taslaklarını onayla → delivery/
+python -m umbrella_vea review approve 3 --clips clip_01,clip_03 --note "ilk ikisi yeterli"
+python -m umbrella_vea review reject 3 --note "kadraj uygun değil"
+python -m umbrella_vea doctor           # kurulum, profil ve sürüm bilgisi
+python -m umbrella_vea --profile viral-reels watch  # profili komut satırından seç
 ```
 
 Komutlar `config.toml` dosyasını bulunduğunuz klasörden okur; başka bir dosya için `--config yol/config.toml` verin. Ayrıntılı log için `-v` ekleyin. Tüm loglar `logs/vea.log` dosyasına da yazılır.
@@ -100,17 +120,68 @@ Uzun işlemlerde konsolda aşama ve yüzde görünür (`[ 45%] transkripsiyon`, 
 - **Tek örnek:** Aynı `state/` klasörüyle aynı anda yalnızca bir `watch` veya `process` çalışabilir (`state/vea.lock`).
 - **Klasör güvenliği:** Çıktı, durum ve log klasörleri `input/` içinde olamaz. Sembolik bağlar da çözülerek kontrol edilir.
 
+## Kurgu profili: viral-reels
+
+Profil, uygulamanın kendi TOML şemasının bir katmanıdır. Değerleri tek bir dosyada durur: [`umbrella_vea/profiles/viral-reels.toml`](umbrella_vea/profiles/viral-reels.toml).
+
+Katmanlar sırasıyla şöyledir; her katman bir öncekini ezer:
+1. Kod varsayılanları
+2. Profil dosyası
+3. Sizin `config.toml` dosyanız
+4. Komut satırındaki `--profile`
+
+Hatalı veya desteklenmeyen bir ayar, işlem başlamadan anlaşılır bir mesajla reddedilir.
+
+| İstenen ayar | Şemadaki karşılığı | Durum |
+|---|---|---|
+| `profile_id = "viral-reels"` | `[profile] id` | ✅ |
+| `aspect_ratio = "9:16"`, `width = 1080`, `height = 1920` | `[render] aspect_ratio, width, height` | ✅ Çıktı ffprobe ile doğrulanır; boyut ile oran uyuşmazsa hata verilir |
+| `duration_mode = "auto"`, 15–60 sn | `[candidates] duration_mode, min_sec, max_sec` | ✅ Süre, sessizlik kesildikten sonraki süreye göre seçilir; uyulamazsa nedeni `duration_note` alanına yazılır |
+| `remove_silence = true` | `[edit] remove_silence` (+ `min_cut_silence_sec`, `silence_padding_sec`) | ✅ Kesit içindeki ≥ 0,5 sn duraklamalar kesilir; iki yanda 0,12 sn pay kalır |
+| `detect_scenes = true` | `[analysis] detect_scenes` | ✅ PySceneDetect |
+| `smart_cuts = true` | `[edit] smart_cuts` | ✅ Sınırlar cümle sonlarına (nefes payıyla) ve 0,5 sn içindeki sahne geçişlerine hizalanır |
+| `punch_in_zooms = true`, `zoom_intensity = "subtle"` | `[edit] punch_in_zooms, zoom_intensity` | ✅ Parça geçişlerinde dönüşümlü %8 merkez yakınlaştırma (`medium` = %15). Geçiş noktası yoksa uygulanmaz ve raporlanır |
+| `captions_enabled`, `caption_language = "tr"` | `[captions] enabled`, `[transcribe] language` | ✅ |
+| `caption_timing = "word_level"` | `[captions] timing` | ✅ faster-whisper kelime zamanları kullanılır. Kelime zamanı yoksa segment zamanına düşülür ve bu raporlanır |
+| `caption_style = "dynamic_highlight"`, `highlight_active_word = true` | `[captions] style, highlight_active_word, highlight_color` | ✅ ASS altyazı: satır görünür, aktif kelime renkli ve %12 büyük |
+| `export_srt`, `burn_captions` | `[captions] export_srt, burn` | ✅ SRT ayrıca kaydedilir. Videoya ASS işlenir; `.ass` dosyası da saklanır |
+| `add_music = false`, `add_sound_effects = false` | `[audio] add_music, add_sound_effects` | ✅ Kapalı. `true` yapılırsa "henüz desteklenmiyor" hatası verilir |
+| `cloud_analysis_enabled = false` | `[cloud] enabled` | ✅ Kapalı |
+| `require_consent_for_cloud_upload = true` | `[cloud] consent_send_transcript` | ✅ Onay her zaman zorunlu; kapatılabilen bir ayar değildir |
+| `preserve_original = true` | `[delivery] preserve_original` | ✅ `false` yapılırsa hata verilir |
+| `auto_publish = false` | `[delivery] auto_publish` | ✅ Yayın özelliği yok; `true` yapılırsa hata verilir |
+| `require_review_before_delivery = true` | `[delivery] require_review_before_delivery` | ✅ Onay olmadan `delivery/` oluşmaz |
+
+Profil, eski sürümdeki bazı ayar adlarını değiştirdi. Eski bir `config.toml` kullanılıyorsa uygulama yeni adı söyleyen bir hata verir:
+
+| Eski ad | Yeni ad |
+|---|---|
+| `render.burn_subtitles` | `captions.burn` |
+| `render.write_srt` | `captions.export_srt` |
+| `render.subtitle_font` | `captions.font` |
+| `render.subtitle_font_size` | `captions.font_size` |
+
+### Henüz geliştirilmeyenler
+
+- **Yüz veya konuşmacı takibi:** Punch-in ve kırpma her zaman merkezdendir.
+- **Müzik, ses efekti ve otomatik ses seviyesi düzeltme (normalizasyon):** Yok.
+- **Otomatik yayın:** Instagram/YouTube'a yükleme yoktur ve bilerek eklenmedi.
+- **Bulut tabanlı anlamsal kesit seçimi:** Yalnızca isteğe bağlı puanlama var; kesitleri yerel kurallar seçer.
+- **İnceleme arayüzü:** İnceleme komut satırındandır; bir web arayüzü yok.
+
 ## Çıktılar
 
 ```
 output/Musteri_Videosu_a5fbb625/
-├── report.json        # tüm analiz, adaylar, render sonuçları, uyarılar, sürümler, süreler
+├── report.json        # analiz, adaylar, kurgu planı, özellik durumları, inceleme, uyarılar, sürümler
 ├── transcript.json    # segment ve kelime zamanlı tam transkript
-├── full.srt           # tüm video için Türkçe altyazı
-└── clips/
-    ├── clip_01.mp4    # 1080x1920, H.264 + AAC
-    ├── clip_01.srt    # kesite göre sıfırdan başlayan altyazı
-    └── ...
+├── full.srt           # tüm video için Türkçe altyazı (kaynak zaman çizelgesi)
+├── clips/
+│   ├── clip_01.mp4    # 1080x1920 (9:16), H.264 + AAC
+│   ├── clip_01.srt    # kurgulanmış kesitin zaman çizelgesine göre altyazı
+│   ├── clip_01.ass    # videoya işlenen kelime vurgulu altyazı
+│   └── ...
+└── delivery/          # yalnızca 'review approve' sonrası (veya inceleme zorunlu değilse)
 ```
 
 `report.json` içindeki başlıca alanlar:
@@ -121,13 +192,17 @@ output/Musteri_Videosu_a5fbb625/
 | `silences`, `scene_cuts` | Sessizlik aralıkları ve sahne geçiş zamanları |
 | `transcript` | Dil, segment sayısı, tam metin, dosya adları |
 | `candidates[]` | `id`, `start`, `end`, `duration`, `confidence` (0–1), `basis`, `reasons[]`, `text`, `features` |
-| `renders[]` | Her kesitin dosyası, gerçek çözünürlük/süre (ffprobe ile doğrulanmış), altyazı durumu, hata |
+| `profile` | Bu çalıştırmada gerçekten kullanılan profil ve ayarlar |
+| `features` | Sahne algılama, akıllı kesit ve süre modu için durum: `applied`, `disabled`, `not_applicable` veya `failed` |
+| `renders[]` | Her kesit için: dosya, ffprobe ile doğrulanmış çözünürlük/oran/süre, `edit` (parçalar, kesilen sessizlikler), `features` (sessizlik kesme, punch-in, altyazı durumları), `duration_note`, hata |
+| `review` | İnceleme gerekli mi; durumu (`pending`, `approved`, `rejected`, `not_required`) ve teslim edilen kesitler |
+| `publishing` | `auto_publish: false` |
 | `framing` | `center_crop_fixed`, `face_tracking: false` ve açıklama |
-| `audio` | `level_modified: false`, `music_added: false` |
+| `audio` | `level_modified: false`, `music_added: false`, `sound_effects_added: false` |
 | `cloud` | Bulutun kullanılıp kullanılmadığı, nedeni ve ne gönderildiği |
 | `warnings`, `timings_sec`, `versions` | Uyarılar, aşama süreleri, araç ve paket sürümleri |
 
-Örnekler: [`examples/sample_report.json`](examples/sample_report.json), [`examples/sample_full.srt`](examples/sample_full.srt), [`examples/sample_clip_01.srt`](examples/sample_clip_01.srt). Bu örneklerin nasıl üretildiği [`examples/README.md`](examples/README.md) dosyasında yazıyor.
+Örnekler: [`examples/sample_report.json`](examples/sample_report.json), [`examples/sample_full.srt`](examples/sample_full.srt), [`examples/sample_clip_01.srt`](examples/sample_clip_01.srt), [`examples/sample_clip_01.ass`](examples/sample_clip_01.ass). Bu örneklerin nasıl üretildiği [`examples/README.md`](examples/README.md) dosyasında yazıyor.
 
 ### Güven puanı nasıl hesaplanır?
 
@@ -137,7 +212,7 @@ output/Musteri_Videosu_a5fbb625/
 - **Soru-cevap (%25):** Kesitte bir soru cümlesi ve ardından gelen yanıt bulunması.
 - **Güçlü ifade (%20):** "kesinlikle", "en önemli", "asla" gibi ifadeler veya ünlem.
 - **Temiz sınır (%15):** Kesitin cümle başında başlayıp bir duraklamada bitmesi.
-- **Süre uyumu (%15):** Hedef süreye (`target_sec`) yakınlık.
+- **Süre uyumu (%15):** `auto` modunda kurgu sonrası sürenin `min_sec`–`max_sec` aralığında olması; `fixed` modunda `target_sec` değerine yakınlık.
 
 Toplam puan, Whisper'ın segment güvenine göre ölçeklenir. Hangi ölçütlerin gerçekten sağlandığı `features` alanında ve Türkçe `reasons` listesinde yazar.
 
@@ -187,9 +262,11 @@ Son test sonuçları için [`docs/TEST_RESULTS.md`](docs/TEST_RESULTS.md) dosyas
 - **Duraklayan kopyalama:** Dosya `stable_checks × poll_interval_sec` (varsayılan 6 sn) boyunca hiç büyümezse kopyalama bitti sayılır. Çok yavaş veya duraklayan ağ kopyalamalarında bu değerleri büyütün. Kopyalama sonradan devam ederse, işlem sonundaki kontrol orijinal dosyanın değiştiğini yakalar ve işi başarısız olarak işaretler.
 - **Zaman aşımları:** FFmpeg adımlarında (render, ses çıkarma, sessizlik, ffprobe) zaman aşımı vardır. PySceneDetect ve Whisper adımlarında yoktur.
 - **Parmak izi:** Tekrar işlememe kontrolü dosya boyutu ile ilk ve son 8 MB'a bakar. Boyutu, başı ve sonu birebir aynı olup yalnızca ortası farklı iki dosya aynı video sayılır; gerçek video dosyalarında bu pek olası değildir.
-- **Altyazı fontu:** `subtitle_font` sistemde yoksa libass benzer bir fonta düşer.
+- **Altyazı fontu:** `captions.font` sistemde yoksa libass benzer bir fonta düşer.
+- **Jump cut sesi:** Sessizlik kesimlerinde ses yalnızca kesilip birleştirilir; seviyeye dokunmamak için geçişlerde ses yumuşatması (fade) yapılmaz. Nadiren hafif bir "tık" duyulabilir.
+- **Punch-in deseni:** Yakınlaştırma, içerikten bağımsız olarak parça geçişlerinde dönüşümlüdür; vurgulu kelimeye göre seçilmez.
 - **Kesit hassasiyeti:** Başlangıç ve bitiş yeniden kodlama ile kare hassasiyetinde yapılır. Bu yüzden render, akış kopyalamaya göre daha yavaştır.
 
 ## Sonraki adımlar
 
-Premiere Pro XML/EDL dışa aktarımı planı: [`docs/premiere-export-plan.md`](docs/premiere-export-plan.md).
+Geliştirme planı (viral-reels sonraki adımları ve Premiere Pro XML/EDL dışa aktarımı): [`docs/premiere-export-plan.md`](docs/premiere-export-plan.md).

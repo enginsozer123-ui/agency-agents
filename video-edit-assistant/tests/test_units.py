@@ -219,8 +219,10 @@ def test_speech_running_to_video_end_is_not_called_clean_end():
 def test_fallback_reason_matches_the_data():
     segs = [Segment(0, 3, "Kısa bir.", -0.2, 0.01), Segment(70, 73, "Başka kısa.", -0.2, 0.01)]
     picks = cand.from_transcript(segs, 80.0, [], [], CandidateConfig())
-    assert len(picks) == 1
-    assert "kısaltıldı" not in picks[0].reasons[0] and "bulunamadı" in picks[0].reasons[0]
+    assert picks and all(p.duration < CandidateConfig().min_sec for p in picks)
+    for p in picks:
+        assert "kısaltıldı" not in " ".join(p.reasons)
+        assert "bütün bir konuşma bölümü yok" in p.duration_note and "toplam konuşma 6.0 sn" in p.duration_note
 
 
 def test_traceback_is_redacted(monkeypatch, tmp_path):
